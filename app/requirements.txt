@@ -1,0 +1,4 @@
+flask>=2.2
+prometheus_client>=0.15
+python-json-logger>=2.0
+gunicorn>=20.1
