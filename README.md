@@ -62,5 +62,43 @@ File list / quick references
 - `grafana/provisioning/dashboards/app_dashboard.json`
 - `scripts/generate_traffic_rich.sh`
 
+**Repository Structure (suggested)**
+
+Below is a concise, recommended view of the repository structure based on the current source files:
+
+```
+aiclipx-devops-trial/
+├── README.md                     # High-level overview and runbook links
+├── docker-compose.yml            # Compose to run app + Prometheus + Grafana
+├── app/
+│   ├── Dockerfile                # Build the service image
+│   ├── app.py                    # Flask service (endpoints, metrics, health)
+│   └── requirements.txt          # Python dependencies
+├── prometheus/
+│   ├── prometheus.yml            # Prometheus scrape configuration
+│   └── README.md                 # Prometheus notes and usage
+├── grafana/
+│   ├── README.md                 # Grafana notes
+│   └── provisioning/
+│       ├── dashboards/
+│       │   ├── app_dashboard.json
+│       │   └── dashboard.yml
+│       └── datasources/
+│           └── datasource.yml
+├── scripts/
+│   ├── 01_request_rate.sh
+│   ├── 02_5xx_error_rate.sh
+│   ├── 03_latency_p95.sh
+│   ├── 04_top_endpoints.sh
+│   ├── 05_exceptions_rate.sh
+│   └── README.md                 # How to run the traffic generators
+└── evidence/
+  └── evidence.pdf              # Optional demo artifacts
+
+Notes:
+- Keep `app/` focused on the service implementation and metrics exposition.
+- Keep monitoring config under `prometheus/` and `grafana/provisioning/` for easy local provisioning.
+- Use `scripts/` to store small traffic generators and diagnostics that help reproduce demo scenarios.
+
 End of overview.
 
