@@ -21,13 +21,6 @@ Key notes
 - Grafana identifies dashboards by the `uid` field inside JSON (the sample dashboard uid is `app-overview`). Filenames do not need to match the uid.
 - Ensure provisioning files are readable by the Grafana container and avoid duplicate `uid` values.
 
-Troubleshooting
-- Dashboard missing: `docker compose logs grafana` → check provisioning errors.
-- UID conflict or invalid JSON: Grafana logs show details; fix JSON or change uid.
-
-Want more
-- For panel-level PromQL and metric details see the repository root README or ask me to add compact recording-rule examples under `prometheus/`.
-
 ## Dashboard metrics — PromQL & meaning
 
 Below are the dashboard panels, the exact PromQL used in the provisioned dashboard, and a short explanation. These queries read metrics exported by the app (listed after the panel descriptions).
