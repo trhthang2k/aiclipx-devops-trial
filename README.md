@@ -15,20 +15,37 @@ What this repo contains
 - `grafana/provisioning/` — datasource and dashboard provisioning (includes a simple dashboard).
 - `scripts/` — traffic generators and helper scripts to produce load and errors.
 
+# aiClipx — Service & Monitoring (DevOps overview)
+
+This repository contains a small containerized Flask service and a local monitoring stack (Prometheus + Grafana) intended for DevOps evaluation, demonstrations, and the AiClipX trial exercise.
+
+The project is designed to be runnable locally with Docker Compose and to demonstrate basic CI/CD/observability practices:
+- Container image built with a multi-stage `Dockerfile`.
+- Structured JSON logging to stdout for container-native log collection.
+- Prometheus metrics exposition and a provisioned Grafana dashboard.
+- Health endpoints and a container `HEALTHCHECK` for release-safety basics.
+
 Quick start (local)
 
-1. Build and start the full stack:
+1. Copy example env and set a secure Grafana password:
 
 ```bash
-docker-compose up --build
+cp .env.example .env
+# edit .env and set GF_SECURITY_ADMIN_PASSWORD to a secure value
 ```
 
-2. Useful UIs
+2. Build and start the stack:
+
+```bash
+docker compose up --build
+```
+
+3. Useful UIs
 
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (default user: `admin`, password: `admin`) — This is the default Grafana account. On first login you will be prompted to change the password; change it immediately to secure your instance.
+- Grafana: http://localhost:3000 (user `admin`, password from your `.env`)
 
-3. Smoke checks
+Smoke checks
 
 ```bash
 curl http://localhost:8080/
@@ -37,79 +54,88 @@ curl -X POST -H "Content-Type: application/json" -d '{"name":"demo"}' http://loc
 curl http://localhost:8080/metrics | head -n 40
 ```
 
-Important endpoints
+Secure configuration & image pinning
 
-- `GET /` — service info
-- `GET /metrics` — Prometheus metrics (scraped every 15s by default)
-- `GET /health/live` — liveness
-- `GET /health/ready` — readiness
+- This repository uses an `.env` file (see `.env.example`) to avoid hard-coded credentials in `docker-compose.yml`.
+- Available variables in `.env.example`:
+  - `GF_SECURITY_ADMIN_PASSWORD` — Grafana admin password (change immediately).
+  - `PROMETHEUS_IMAGE` — Prometheus image tag (defaults to a pinned version).
+  - `GRAFANA_IMAGE` — Grafana image tag (defaults to a pinned version).
+- Do **not** commit `.env` to source control. Prefer Docker secrets or a cloud secret manager for shared or production environments.
+- You can override images at runtime:
 
-Monitoring notes
+```bash
+PROMETHEUS_IMAGE=prom/prometheus:v2.49.0 GRAFANA_IMAGE=grafana/grafana:9.5.2 docker compose up --build
+```
 
-- Prometheus scrapes the app at `/metrics` (see `prometheus/prometheus.yml`).
-- Key metrics exported by the app:
-  - `app_requests_total{method,endpoint,http_status}` — request counters
-  - `app_request_latency_seconds_bucket/_count/_sum` — latency histogram (for percentile calculations)
-  - `app_errors_total` — internal error counter
-- The provided Grafana dashboard visualises request rate, p95 latency and error rate using these metrics.
+Service summary
+
+- `app/` — Flask service source, `Dockerfile`, and `requirements.txt`.
+- `docker-compose.yml` — local stack: `app`, `prometheus`, and `grafana`.
+- `prometheus/prometheus.yml` — Prometheus scrape configuration.
+- `grafana/provisioning/` — Grafana provisioning: datasource and dashboard JSON.
+- `scripts/` — traffic generators used to create demo load and errors.
+- `evidence/` — example screenshots / evidence files used for demonstration.
+
+Health checks
+
+- Liveness: `GET /health/live` — verifies the process is running.
+- Readiness: `GET /health/ready` — indicates whether the app is ready to receive traffic. The runtime image also includes a `HEALTHCHECK` that calls `/health/ready`.
+
+Logging
+
+- Logs are emitted in JSON to stdout via `python-json-logger` (see `app/app.py`). This makes logs easy to collect with a shipper (Vector, Fluent Bit, Fluentd) or platform logging.
+- Recommendation: add a log forwarder (Vector/Fluent Bit) to collect, parse, and index logs in a central system for any real deployment.
 
 Monitoring explanation
 
-- **Stack**: Prometheus (scrape & storage) + Grafana (visualisation). Prometheus scrapes the app's `/metrics` endpoint and stores time series; Grafana is provisioned with a Prometheus datasource and a prebuilt dashboard in `grafana/provisioning/dashboards/app_dashboard.json`.
-- **Key queries**: the dashboard uses `rate()` on counters for request-rate panels, `histogram_quantile()` over aggregated histogram buckets for p95, and `rate(app_errors_total[5m])` for internal exceptions.
-- **Why this design**: Prometheus is lightweight and well-aligned with pull-based metrics exposition from instrumented services. Grafana provides fast visual feedback and reproducible dashboards via provisioning.
+- Stack: Prometheus (scrape & storage) + Grafana (visualisation).
+- The app exposes Prometheus metrics at `/metrics` using the `prometheus_client` library.
+- Key metrics:
+  - `app_requests_total{method,endpoint,http_status}` — request counters
+  - `app_request_latency_seconds_bucket/_count/_sum` — histogram buckets for latency
+  - `app_errors_total` — internal exception counter
+- Grafana is provisioned with a dashboard that uses `rate()` and `histogram_quantile()` queries to show request rate, p95 latency, error rate, and top endpoints.
 
-Explanation of design decisions
+Design decisions (short)
 
-- **Multi-stage Dockerfile** (`app/Dockerfile`): separate builder and runtime stages to keep the final image minimal and reproducible.
-- **Non-root runtime user**: the final image runs as a non-root user (`appuser`) to follow container security best practices.
-- **Expose Prometheus metrics**: instrumenting the app with Prometheus client libraries enables precise, aggregated observability (counters, histograms, error counters).
-- **Structured JSON logs to stdout**: application logs are emitted in JSON to stdout so container orchestrators and log shippers can collect and index them without fragile file handling.
-- **Provisioned Grafana**: dashboards and datasources are configured by files under `grafana/provisioning/` so the visualisation is reproducible across restarts.
+- Multi-stage Dockerfile to keep the runtime image minimal and reproducible.
+- Run as a non-root user in the container for improved security.
+- Expose Prometheus metrics for accurate, pull-based monitoring.
+- Use JSON logs to stdout to follow container-native logging best practices.
+- Provision Grafana dashboards to make the visualisation reproducible across restarts.
 
-Implemented logging strategy
+Identified risks & recommended improvements
 
-- **What**: `app/app.py` configures structured JSON logs (via `python-json-logger`) that write to stdout.
-- **Why**: container-native logging prefers stdout/stderr; JSON makes logs machine-parseable for later ingestion into ELK/Fluentd/Vector.
-- **Limitations**: this repository does not include a log-forwarder; in production, add a shipper (Vector/Fluentd/Fluent Bit) or use platform logging.
+These are actionable items to make the stack more production-ready:
 
-Define health checks
+- Secrets: switch from `.env` to Docker secrets or a secret manager (Vault, AWS Secrets Manager, Kubernetes Secrets) for sensitive values.
+- Persistence: add a persistent volume for Prometheus (e.g. `./prometheus/data:/prometheus`) and set a retention policy to retain metrics across restarts.
+- Alerting & recording rules: add `prometheus/rules.yml` to create recording rules for expensive queries (e.g., p95) and alert rules for high 5xx rate and instance down; add `alertmanager` in the Compose file for notifications.
+- Resource constraints: declare CPU/memory limits in production orchestration to avoid noisy-neighbour issues.
+- Metrics correctness: `app/app.py` currently increments request counters in handlers and again in the `after_request` hook; remove duplicate increments to avoid double-counting.
+- Logging hygiene: avoid logging raw request bodies or sensitive fields; sanitize before logging.
 
-- **Liveness**: `GET /health/live` — verifies process is running.
-- **Readiness**: `GET /health/ready` — simple readiness flag (200 when ready, 503 when not). The container image includes a `HEALTHCHECK` (in `app/Dockerfile`) that queries `/health/ready` to indicate container health to orchestrators.
+Improvement roadmap (suggested next steps)
 
-Identified risks and suggested improvements
+1. Add Prometheus persistence and retention settings in `docker-compose.yml`.
+2. Add `prometheus/rules.yml` and an `alertmanager` service; define basic alerts and recording rules.
+3. Convert sensitive config to Docker secrets and document deployment steps.
+4. Add a lightweight log forwarder example (Vector/Fluent Bit) and example configuration.
+5. Fix metrics double-counting in `app/app.py` and add unit tests for metrics correctness.
 
-- **Hard-coded credentials**: `GF_SECURITY_ADMIN_PASSWORD=admin` in `docker-compose.yml` is insecure. Suggest using an `.env` file or Docker secrets for passwords and sensitive config.
-- **No persistent storage for Prometheus**: current compose does not persist Prometheus data — add a volume (e.g., `./prometheus/data:/prometheus`) and tune retention for longer-term analysis.
-- **Image pinning**: `prom/prometheus:latest` and other `latest` tags should be pinned to specific versions to avoid unintended upgrades; update `docker-compose.yml` accordingly.
-- **No alerting or recording rules**: provide Prometheus `rules.yml` with recording rules for expensive queries (p95) and alert rules (high 5xx rate, instance down) plus an `alertmanager` to manage notifications.
-- **Metric double-counting**: `app/app.py` currently increments request counters in both handlers (via `record_request`) and in the `after_request` hook — this can double-count requests. Remove one of the mechanisms (prefer hooks) or guard `record_request()` in handlers.
-- **No resource limits**: add container resource constraints in compose for more predictable behaviour on shared machines.
-- **Logging sensitive data**: ensure payloads are sanitized before logging in production; avoid logging full request bodies.
+How to run the traffic generators
 
-Improvement suggestions (next steps)
+The `scripts/` folder contains utility scripts to generate traffic used for demos. Make them executable and run from the repo root:
 
-- Add a small `prometheus/rules.yml` with recording rules for `p95` and alerts for `high_5xx` and `instance_down` and include `alertmanager` in `docker-compose.yml`.
-- Add persistent volume for Prometheus and optionally Grafana (dashboards persistency if editing via UI).
-- Replace hard-coded Grafana password with an `.env`-backed secret and pin image tags.
-- Add a short example `vector`/`fluent-bit` config or instructions to ship logs from stdout to a log backend.
-- Fix the request counter duplication in `app/app.py` so counters are only incremented once per request.
+```bash
+chmod +x scripts/*.sh
+./scripts/01_request_rate.sh
+```
 
----
+Contact / Notes
 
-File list / quick references
-
-- `app/` (service source)
-- `docker-compose.yml`
-- `prometheus/prometheus.yml`
-- `grafana/provisioning/dashboards/app_dashboard.json`
-- `scripts/generate_traffic_rich.sh`
-
-**Repository Structure (suggested)**
-
-Below is a concise, recommended view of the repository structure based on the current source files:
-
+This repository is intended for local evaluation and demonstration. Do not use it unchanged in production — apply the recommended hardening steps above before deploying in a shared or production environment.
 ```
 aiclipx-devops-trial/
 ├── README.md                     # High-level overview and runbook links
@@ -137,7 +163,7 @@ aiclipx-devops-trial/
 │   ├── 05_exceptions_rate.sh
 │   └── README.md                 # How to run the traffic generators
 └── evidence/
-  └── evidence.pdf              # Optional demo artifacts
+  └── evidence.pdf              # screen shot for evidence
 
 Notes:
 - Keep `app/` focused on the service implementation and metrics exposition.
