@@ -100,5 +100,4 @@ Notes:
 - Keep monitoring config under `prometheus/` and `grafana/provisioning/` for easy local provisioning.
 - Use `scripts/` to store small traffic generators and diagnostics that help reproduce demo scenarios.
 
-End of overview.
 
