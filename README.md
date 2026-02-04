@@ -26,7 +26,7 @@ docker-compose up --build
 2. Useful UIs
 
 - Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000 (default user: `admin`, password: `admin`)
+- Grafana: http://localhost:3000 (default user: `admin`, password: `admin`) — This is the default Grafana account. On first login you will be prompted to change the password; change it immediately to secure your instance.
 
 3. Smoke checks
 
