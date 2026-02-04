@@ -52,6 +52,50 @@ Monitoring notes
   - `app_request_latency_seconds_bucket/_count/_sum` — latency histogram (for percentile calculations)
   - `app_errors_total` — internal error counter
 - The provided Grafana dashboard visualises request rate, p95 latency and error rate using these metrics.
+
+Monitoring explanation
+
+- **Stack**: Prometheus (scrape & storage) + Grafana (visualisation). Prometheus scrapes the app's `/metrics` endpoint and stores time series; Grafana is provisioned with a Prometheus datasource and a prebuilt dashboard in `grafana/provisioning/dashboards/app_dashboard.json`.
+- **Key queries**: the dashboard uses `rate()` on counters for request-rate panels, `histogram_quantile()` over aggregated histogram buckets for p95, and `rate(app_errors_total[5m])` for internal exceptions.
+- **Why this design**: Prometheus is lightweight and well-aligned with pull-based metrics exposition from instrumented services. Grafana provides fast visual feedback and reproducible dashboards via provisioning.
+
+Explanation of design decisions
+
+- **Multi-stage Dockerfile** (`app/Dockerfile`): separate builder and runtime stages to keep the final image minimal and reproducible.
+- **Non-root runtime user**: the final image runs as a non-root user (`appuser`) to follow container security best practices.
+- **Expose Prometheus metrics**: instrumenting the app with Prometheus client libraries enables precise, aggregated observability (counters, histograms, error counters).
+- **Structured JSON logs to stdout**: application logs are emitted in JSON to stdout so container orchestrators and log shippers can collect and index them without fragile file handling.
+- **Provisioned Grafana**: dashboards and datasources are configured by files under `grafana/provisioning/` so the visualisation is reproducible across restarts.
+
+Implemented logging strategy
+
+- **What**: `app/app.py` configures structured JSON logs (via `python-json-logger`) that write to stdout.
+- **Why**: container-native logging prefers stdout/stderr; JSON makes logs machine-parseable for later ingestion into ELK/Fluentd/Vector.
+- **Limitations**: this repository does not include a log-forwarder; in production, add a shipper (Vector/Fluentd/Fluent Bit) or use platform logging.
+
+Define health checks
+
+- **Liveness**: `GET /health/live` — verifies process is running.
+- **Readiness**: `GET /health/ready` — simple readiness flag (200 when ready, 503 when not). The container image includes a `HEALTHCHECK` (in `app/Dockerfile`) that queries `/health/ready` to indicate container health to orchestrators.
+
+Identified risks and suggested improvements
+
+- **Hard-coded credentials**: `GF_SECURITY_ADMIN_PASSWORD=admin` in `docker-compose.yml` is insecure. Suggest using an `.env` file or Docker secrets for passwords and sensitive config.
+- **No persistent storage for Prometheus**: current compose does not persist Prometheus data — add a volume (e.g., `./prometheus/data:/prometheus`) and tune retention for longer-term analysis.
+- **Image pinning**: `prom/prometheus:latest` and other `latest` tags should be pinned to specific versions to avoid unintended upgrades; update `docker-compose.yml` accordingly.
+- **No alerting or recording rules**: provide Prometheus `rules.yml` with recording rules for expensive queries (p95) and alert rules (high 5xx rate, instance down) plus an `alertmanager` to manage notifications.
+- **Metric double-counting**: `app/app.py` currently increments request counters in both handlers (via `record_request`) and in the `after_request` hook — this can double-count requests. Remove one of the mechanisms (prefer hooks) or guard `record_request()` in handlers.
+- **No resource limits**: add container resource constraints in compose for more predictable behaviour on shared machines.
+- **Logging sensitive data**: ensure payloads are sanitized before logging in production; avoid logging full request bodies.
+
+Improvement suggestions (next steps)
+
+- Add a small `prometheus/rules.yml` with recording rules for `p95` and alerts for `high_5xx` and `instance_down` and include `alertmanager` in `docker-compose.yml`.
+- Add persistent volume for Prometheus and optionally Grafana (dashboards persistency if editing via UI).
+- Replace hard-coded Grafana password with an `.env`-backed secret and pin image tags.
+- Add a short example `vector`/`fluent-bit` config or instructions to ship logs from stdout to a log backend.
+- Fix the request counter duplication in `app/app.py` so counters are only incremented once per request.
+
 ---
 
 File list / quick references
