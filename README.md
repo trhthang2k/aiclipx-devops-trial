@@ -15,16 +15,6 @@ What this repo contains
 - `grafana/provisioning/` — datasource and dashboard provisioning (includes a simple dashboard).
 - `scripts/` — traffic generators and helper scripts to produce load and errors.
 
-# aiClipx — Service & Monitoring (DevOps overview)
-
-This repository contains a small containerized Flask service and a local monitoring stack (Prometheus + Grafana) intended for DevOps evaluation, demonstrations, and the AiClipX trial exercise.
-
-The project is designed to be runnable locally with Docker Compose and to demonstrate basic CI/CD/observability practices:
-- Container image built with a multi-stage `Dockerfile`.
-- Structured JSON logging to stdout for container-native log collection.
-- Prometheus metrics exposition and a provisioned Grafana dashboard.
-- Health endpoints and a container `HEALTHCHECK` for release-safety basics.
-
 Quick start (local)
 
 1. Copy example env and set a secure Grafana password:
