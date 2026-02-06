@@ -1,25 +1,25 @@
 # --- Builder stage: install build deps and Python packages ---
-FROM python:3.11.14-slim AS builder
+FROM python:3.11-alpine AS builder
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV VENV_PATH="/opt/venv"
+ENV PATH="${VENV_PATH}/bin:${PATH}"
 
 COPY requirements.txt /app/requirements.txt
 
-# Install build deps, upgrade pip, and install packages into /install
-RUN apt-get update \
-		&& apt-get upgrade -y --no-install-recommends \
-		&& apt-get install -y --no-install-recommends build-essential gcc \
-		&& pip install --no-cache-dir -U pip setuptools "wheel==0.46.2" "jaraco.context==6.1.0" \
-		&& pip install --prefix=/install --no-cache-dir -r /app/requirements.txt \
-		&& apt-get purge -y --auto-remove build-essential gcc \
-		&& rm -rf /var/lib/apt/lists/*
+# Install build deps, create virtualenv, and install packages into it
+RUN python -m venv "${VENV_PATH}" \
+	&& apk add --no-cache build-base \
+	&& pip install --no-cache-dir --upgrade pip \
+	&& pip install --no-cache-dir -r /app/requirements.txt \
+	&& apk del build-base
 
 
 # --- Final stage: runtime image ---
-FROM python:3.11.14-slim
+FROM python:3.11-alpine
 
 LABEL org.opencontainers.image.source="https://example.com/aiClipx-trial"
 
@@ -27,20 +27,19 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV VENV_PATH="/opt/venv"
+ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-# Copy installed packages from builder
-COPY --from=builder /install /usr/local
+# Copy virtualenv from builder
+COPY --from=builder ${VENV_PATH} ${VENV_PATH}
 
 # Copy application files
 COPY --chown=1000:1000 app.py /app/app.py
 COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 
 # Create non-root user with fixed UID and set permissions
-RUN apt-get update \
-		&& apt-get upgrade -y --no-install-recommends \
-		&& rm -rf /var/lib/apt/lists/* \
-		&& useradd -u 1000 --create-home appuser \
-		&& chown -R appuser:appuser /app
+RUN adduser -D -u 1000 appuser \
+	&& chown -R appuser:appuser /app
 
 USER appuser
 
