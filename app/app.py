@@ -95,7 +95,7 @@ def create_item():
         logger.info('item created', extra={'item': item})
         record_request('/items', 'POST', 201)
         return jsonify(item), 201
-    except Exception as e:
+    except Exception:
         logger.exception('create_item failed')
         ERROR_COUNT.inc()
         record_request('/items', 'POST', 500)
