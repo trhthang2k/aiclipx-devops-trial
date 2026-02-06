@@ -76,7 +76,7 @@ jobs:
       - name: Install Trivy CLI
         run: |
           # Pin version for reproducibility; update when needed
-          TRIVY_VERSION=v0.44.0
+          TRIVY_VERSION=v0.49.1
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin ${TRIVY_VERSION}
 
       # Run Trivy image scan
