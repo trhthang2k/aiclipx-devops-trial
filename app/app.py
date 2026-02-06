@@ -3,8 +3,8 @@ import os
 import time
 
 from flask import Flask, g, jsonify, request
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pythonjsonlogger import jsonlogger
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 app = Flask(__name__)
 
@@ -18,14 +18,10 @@ logger.setLevel(logging.INFO)
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
-    "app_requests_total",
-    "Total HTTP requests",
-    ["method", "endpoint", "http_status"],
+    "app_requests_total", "Total HTTP requests", ["method", "endpoint", "http_status"]
 )
 REQUEST_LATENCY = Histogram(
-    "app_request_latency_seconds",
-    "Request latency",
-    ["endpoint"],
+    "app_request_latency_seconds", "Request latency", ["endpoint"]
 )
 ERROR_COUNT = Counter("app_errors_total", "Total errors")
 

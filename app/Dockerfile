@@ -13,7 +13,8 @@ COPY requirements.txt /app/requirements.txt
 # Install build deps, create virtualenv, and install packages into it
 RUN python -m venv "${VENV_PATH}" \
 	&& apk add --no-cache build-base \
-	&& pip install --no-cache-dir --upgrade pip \
+	&& pip install --no-cache-dir --upgrade pip setuptools==75.8.0 wheel==0.46.2 \
+	&& pip install --no-cache-dir jaraco.context==6.1.0 \
 	&& pip install --no-cache-dir -r /app/requirements.txt \
 	&& apk del build-base
 
@@ -40,6 +41,10 @@ COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 # Create non-root user with fixed UID and set permissions
 RUN adduser -D -u 1000 appuser \
 	&& chown -R appuser:appuser /app
+
+# Remove vulnerable system packages to rely solely on virtualenv copies
+RUN find /usr/local/lib/python3.11/site-packages -maxdepth 1 -name 'jaraco.context*' -exec rm -rf {} + \
+	&& find /usr/local/lib/python3.11/site-packages -maxdepth 1 -name 'wheel*' -exec rm -rf {} +
 
 USER appuser
 
