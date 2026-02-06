@@ -90,13 +90,22 @@ jobs:
           echo "Scanning image: ${IMAGE_REF}"
           # Fail the job on detected HIGH/CRITICAL vulnerabilities
           set -o pipefail
+          set +e
           trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF} | tee /tmp/trivy.log
+          TRIVY_EXIT=${PIPESTATUS[0]}
+          set -e
           {
             echo "### Trivy"
+            if [ "${TRIVY_EXIT}" -eq 0 ]; then
+              echo "Status: passed"
+            else
+              echo "Status: failed (exit code ${TRIVY_EXIT})"
+            fi
             echo '```'
             cat /tmp/trivy.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit ${TRIVY_EXIT}
 
       # Secret scanning with Gitleaks
       # - Purpose: scan the repository for high-risk secrets (API keys, passwords, tokens).
