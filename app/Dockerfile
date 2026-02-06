@@ -1,8 +1,7 @@
-# --- Builder: create a clean venv and install deps inside it ---
-FROM python:3.11.14-slim AS builder
+# --- Builder: install deps into a venv ---
+FROM python:3.11.14-slim-bookworm AS builder
 
 WORKDIR /app
-
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
@@ -12,41 +11,32 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential gcc \
     && python -m venv /venv \
     && /venv/bin/pip install --no-cache-dir -U pip setuptools \
-    # Force fixed versions flagged by Trivy (avoid inheriting old base pkgs)
-    && /venv/bin/pip install --no-cache-dir -U "wheel>=0.46.2" "jaraco.context>=6.1.0" \
     && /venv/bin/pip install --no-cache-dir -r /app/requirements.txt \
     && apt-get purge -y --auto-remove build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Final: patch OS libs + run using venv ---
-FROM python:3.11.14-slim
-
-LABEL org.opencontainers.image.source="https://example.com/aiClipx-trial"
+# --- Final: patched OS + run from venv ---
+FROM python:3.11.14-slim-bookworm
 
 WORKDIR /app
-
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/venv/bin:$PATH"
 
-# IMPORTANT: pull latest security fixes for OS packages (glibc/libc6/etc.)
+# pull latest security patches in this distro line
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy venv from builder (this overrides base python packages usage via PATH)
 COPY --from=builder /venv /venv
 
-# Copy application files
 COPY --chown=1000:1000 app.py /app/app.py
 COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 
-# Create non-root user
 RUN useradd -u 1000 --create-home appuser \
     && chown -R appuser:appuser /app
 
 USER appuser
-
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

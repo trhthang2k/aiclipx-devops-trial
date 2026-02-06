@@ -72,40 +72,42 @@ jobs:
         run: |
           pip-audit --progress-spinner off
 
-      # Install Trivy CLI and scan the built Docker image for OS and library vulnerabilities
-      - name: Install Trivy CLI
-        run: |
-          # Pin version for reproducibility; update when needed
-          TRIVY_VERSION=v0.44.0
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin ${TRIVY_VERSION}
-
       # Run Trivy image scan
       # - Purpose: scan the built Docker image for OS and library vulnerabilities.
       # - Behavior: exit code 1 fails the job when HIGH/CRITICAL vulnerabilities are found.
       # - Input: uses the image reference exported earlier into `IMAGE_REF`.
+      # Trivy image scan (official action) + export to GitHub Step Summary
+      # Trivy image scan (official action) + export to GitHub Step Summary
       - name: Run Trivy image scan
-        env:
-          IMAGE_REF: ${{ env.IMAGE_REF }}
+        id: trivy
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: false
+          vuln-type: "os,library"
+          scanners: "vuln"
+          timeout: "10m"
+          output: /tmp/trivy.log
+
+      - name: Trivy summary
+        if: always()
         run: |
-          echo "Scanning image: ${IMAGE_REF}"
-          # Fail the job on detected HIGH/CRITICAL vulnerabilities
-          set -o pipefail
-          set +e
-          trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF} | tee /tmp/trivy.log
-          TRIVY_EXIT=${PIPESTATUS[0]}
-          set -e
           {
             echo "### Trivy"
-            if [ "${TRIVY_EXIT}" -eq 0 ]; then
-              echo "Status: passed"
+            echo ""
+            echo "**Image:** \`${IMAGE_REF}\`"
+            echo ""
+            if [ -f /tmp/trivy.log ]; then
+              echo '```'
+              cat /tmp/trivy.log
+              echo '```'
             else
-              echo "Status: failed (exit code ${TRIVY_EXIT})"
+              echo "_No Trivy output file found._"
             fi
-            echo '```'
-            cat /tmp/trivy.log
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          exit ${TRIVY_EXIT}
 
       # Secret scanning with Gitleaks
       # - Purpose: scan the repository for high-risk secrets (API keys, passwords, tokens).
