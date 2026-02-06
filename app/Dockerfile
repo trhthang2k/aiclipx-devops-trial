@@ -42,22 +42,43 @@ RUN adduser -D -u 1000 appuser
 # Copy venv first
 COPY --from=builder ${VENV_PATH} ${VENV_PATH}
 
-# ---- HARD CLEAN: remove any vulnerable dist-info traces (system + venv) ----
+# ---- HARD CLEAN: remove vulnerable stdlib bundles and old packages ----
 RUN set -eux; \
-  for base in \
-    /usr/lib/python3.11/site-packages \
-    /usr/local/lib/python3.11/site-packages \
-    ${VENV_PATH}/lib/python3.11/site-packages \
-  ; do \
-    if [ -d "$base" ]; then \
-      rm -rf \
-        "$base"/wheel-0.45.1.dist-info \
-        "$base"/wheel-0.45.1* \
-        "$base"/jaraco.context-5.3.0.dist-info \
-        "$base"/jaraco.context-5.3.0* \
-      || true; \
-    fi; \
-  done
+  rm -rf /usr/lib/python3.11/ensurepip/_bundled/*; \
+  python - <<'PY'
+import shutil
+import sys
+from pathlib import Path
+
+TARGET_PATTERNS = [
+    "jaraco",
+    "jaraco.context",
+    "jaraco.context-5.3.0",
+    "jaraco.context-5.3.0.dist-info",
+    "wheel",
+    "wheel-0.45.1",
+    "wheel-0.45.1.dist-info",
+    "setuptools-75.8.0",
+    "setuptools-75.8.0.dist-info",
+]
+
+def purge(base: Path) -> None:
+    if not base.exists():
+        return
+    for pattern in TARGET_PATTERNS:
+        for path in base.glob(pattern):
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+
+for entry in sys.path:
+    if entry and entry.endswith(("site-packages", "dist-packages")):
+        purge(Path(entry))
+PY
 
 # Reinstall fixed versions into BOTH system python and venv
 RUN set -eux; \
@@ -78,4 +99,6 @@ USER appuser
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD python -c "import sys,urllib.reques
+  CMD python -c "import sys,urllib.request as u; r=u.urlopen('http://127.0.0.1:8080/health/ready'); sys.exit(0 if r.getcode()==200 else 1)" || exit 1
+
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "app:app"]
