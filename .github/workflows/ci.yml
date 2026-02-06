@@ -61,7 +61,7 @@ jobs:
         run: |
           IMAGE_TAG=${{ github.sha }}
           IMAGE_REF=aiclipx-devops-trial:${IMAGE_TAG}
-          docker build -t "${IMAGE_REF}" -t aiclipx-devops-trial:latest app
+          docker build --pull --no-cache -t "${IMAGE_REF}" -t aiclipx-devops-trial:latest app
           echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       # Quick check: list images to help debugging if later steps fail to find the image
