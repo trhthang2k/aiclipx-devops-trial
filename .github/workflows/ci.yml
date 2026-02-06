@@ -32,12 +32,28 @@ jobs:
       # Lint the codebase and verify formatting (ruff)
       - name: Lint & format check
         run: |
-          ruff check .
-          ruff format --check .
+          set -o pipefail
+          ruff check . | tee /tmp/ruff_check.log
+          ruff format --check . | tee /tmp/ruff_format.log
+          {
+            echo "### Lint & Format"
+            echo '```'
+            cat /tmp/ruff_check.log
+            cat /tmp/ruff_format.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Run unit tests with pytest
       - name: Run unit tests
-        run: pytest
+        run: |
+          set -o pipefail
+          pytest | tee /tmp/pytest.log
+          {
+            echo "### Unit Tests"
+            echo '```'
+            cat /tmp/pytest.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Build the Docker image and tag it with the commit SHA (immutable) + latest
       - name: Build Docker image
@@ -53,7 +69,15 @@ jobs:
 
       # Scan Python dependencies for known vulnerabilities (pip-audit)
       - name: Dependency vulnerability scan
-        run: pip-audit
+        run: |
+          set -o pipefail
+          pip-audit --progress-spinner off | tee /tmp/pip_audit.log
+          {
+            echo "### Dependency Audit"
+            echo '```'
+            cat /tmp/pip_audit.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Install Trivy CLI and scan the built Docker image for OS and library vulnerabilities
       - name: Install Trivy CLI
@@ -72,7 +96,14 @@ jobs:
         run: |
           echo "Scanning image: ${IMAGE_REF}"
           # Fail the job on detected HIGH/CRITICAL vulnerabilities
-          trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF}
+          set -o pipefail
+          trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF} | tee /tmp/trivy.log
+          {
+            echo "### Trivy Image Scan"
+            echo '```'
+            cat /tmp/trivy.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Secret scanning with Gitleaks
       # - Purpose: scan the repository for high-risk secrets (API keys, passwords, tokens).
@@ -82,3 +113,10 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         with:
           args: --source . --no-banner --verbose
+      - name: Append secret scanning summary
+        if: success()
+        run: |
+          {
+            echo "### Secret Scanning"
+            echo "- Gitleaks completed with no secrets detected."
+          } >> "$GITHUB_STEP_SUMMARY"
