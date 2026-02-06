@@ -13,6 +13,7 @@ RUN apt-get update \
 		&& apt-get install -y --no-install-recommends build-essential gcc \
 		&& pip install --no-cache-dir -U pip setuptools wheel \
 		&& pip install --prefix=/install --no-cache-dir -r /app/requirements.txt \
+		&& pip install --prefix=/install --no-cache-dir --force-reinstall wheel==0.46.2 jaraco.context==6.1.0 \
 		&& apt-get purge -y --auto-remove build-essential gcc \
 		&& rm -rf /var/lib/apt/lists/*
 
