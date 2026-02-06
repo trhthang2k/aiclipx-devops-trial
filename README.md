@@ -58,6 +58,12 @@ Secure configuration & image pinning
 PROMETHEUS_IMAGE=prom/prometheus:v2.49.0 GRAFANA_IMAGE=grafana/grafana:9.5.2 docker compose up --build
 ```
 
+Image provenance & release discipline
+
+- Tag application images with semantic versions (e.g. `ai-clipx-service:v1.2.0`) and push a matching immutable digest (`:v1.2.0@sha256:...`).
+- Record notable changes, migration notes, and security updates for each release tag in CHANGELOG or GitHub Releases; link the digest so deployers can verify provenance.
+- In CI/CD, promote images from `ci` tag to `staging`/`prod` only after automated checks pass and evidence (tests, alerts) is attached to the release note.
+
 Service summary
 
 - `app/` — Flask service source, `Dockerfile`, and `requirements.txt`.

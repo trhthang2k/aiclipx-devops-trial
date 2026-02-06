@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Local env files
+.env
+
+# Docker
+docker-compose.override.yml
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs and runtime files
+*.log
+*.pid
+
+# Evidence / local screenshots (optional: keep in repo if needed)
+/evidence/*.png
+/evidence/*.jpg
+/evidence/*.pdf

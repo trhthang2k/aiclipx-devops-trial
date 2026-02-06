@@ -13,17 +13,11 @@ Config file
 - Key settings in this repo:
   - `scrape_interval: 15s`
   - job `app` scrapes target `app:8080`
+- Alert rules loaded from `prometheus/rules/alerts.yml`. Prometheus needs a restart to pick up rule changes.
 
 Add recording or alerting rules
-- Create YAML files under `prometheus/rules/` (create the directory).
-- Include them in `prometheus/prometheus.yml` with a `rule_files:` entry, e.g.: 
-
-```yaml
-rule_files:
-  - 'rules/*.yml'
-```
-
-- After adding rules restart Prometheus container: `docker compose restart prometheus`.
+- Rules in this repo live under `prometheus/rules/`. Update or add `.yml` files there and they are auto-loaded via `rule_files: ['rules/*.yml']`.
+- After editing rules restart Prometheus container: `docker compose restart prometheus`.
 
 Verification & troubleshooting
 - Check scrape status: `http://localhost:9090/targets`.
