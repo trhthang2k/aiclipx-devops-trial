@@ -10,6 +10,14 @@ This document explains how this repository satisfies the round‑2 assignment re
 
 All examples are self‑contained and use only local Docker/Compose and mock values from `.env.example`.
 
+## 1.1 Design decisions and trade‑offs
+
+- **Single Python service with a minimal test suite** – focuses on core API behaviour (`/`, `/items`, basic validation) in [tests/test_app.py](../../tests/test_app.py) instead of full coverage, to keep the homework small while still showing how tests plug into CI.
+- **Multi‑stage Dockerfile and non‑root user** – [app/Dockerfile](../../app/Dockerfile) installs dependencies in a builder stage and runs the app as an unprivileged `appuser` in a slim runtime image, prioritising reproducibility and container security over the absolute smallest possible image size.
+- **Short alert `for` windows for demos** – Prometheus rules in [prometheus/rules/alerts.yml](../../prometheus/rules/alerts.yml) use `rate()` over several minutes but a short `for` (1–3 minutes) so alerts can FIRE quickly during interviews; annotations describe the longer SLO window you would use in production.
+- **Security scans tuned for fast feedback** – CI runs `pip-audit` for Python deps and Trivy with `severity: CRITICAL` and `ignore-unfixed: true` to keep the pipeline fast and focused for this exercise; a real pipeline would likely include HIGH severity and additional policies.
+- **Local‑only observability stack** – `docker-compose.yml` brings up Prometheus and Grafana with in‑container storage only, which is enough to demonstrate alerting and dashboards without committing to a particular long‑term storage solution.
+
 ## 2. CI & Release Safety (Part A)
 
 ### 2.1 Workflow overview
