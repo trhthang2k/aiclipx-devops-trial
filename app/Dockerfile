@@ -10,8 +10,9 @@ COPY requirements.txt /app/requirements.txt
 
 # Install build deps, upgrade pip, and install packages into /install
 RUN apt-get update \
+		&& apt-get upgrade -y --no-install-recommends \
 		&& apt-get install -y --no-install-recommends build-essential gcc \
-		&& pip install --no-cache-dir -U pip setuptools wheel \
+		&& pip install --no-cache-dir -U pip setuptools "wheel==0.46.2" "jaraco.context==6.1.0" \
 		&& pip install --prefix=/install --no-cache-dir -r /app/requirements.txt \
 		&& apt-get purge -y --auto-remove build-essential gcc \
 		&& rm -rf /var/lib/apt/lists/*
@@ -35,7 +36,10 @@ COPY --chown=1000:1000 app.py /app/app.py
 COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 
 # Create non-root user with fixed UID and set permissions
-RUN useradd -u 1000 --create-home appuser \
+RUN apt-get update \
+		&& apt-get upgrade -y --no-install-recommends \
+		&& rm -rf /var/lib/apt/lists/* \
+		&& useradd -u 1000 --create-home appuser \
 		&& chown -R appuser:appuser /app
 
 USER appuser
