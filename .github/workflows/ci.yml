@@ -57,11 +57,12 @@ jobs:
 
       # Build the Docker image and tag it with the commit SHA (immutable) + latest
       - name: Build Docker image
+        id: build-image
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker build -t aiclipx-devops-trial:${IMAGE_TAG} -t aiclipx-devops-trial:latest app
-          # Export the image reference for downstream steps
-          echo "IMAGE_REF=aiclipx-devops-trial:${IMAGE_TAG}" >> $GITHUB_ENV
+          IMAGE_REF=aiclipx-devops-trial:${IMAGE_TAG}
+          docker build -t "${IMAGE_REF}" -t aiclipx-devops-trial:latest app
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       # Quick check: list images to help debugging if later steps fail to find the image
       - name: List Docker images (debug)
@@ -82,7 +83,7 @@ jobs:
         id: trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ env.IMAGE_REF }}
+          image-ref: ${{ steps.build-image.outputs.image_ref }}
           format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
@@ -94,11 +95,13 @@ jobs:
 
       - name: Trivy summary
         if: always()
+        env:
+          IMAGE_REF: ${{ steps.build-image.outputs.image_ref }}
         run: |
           {
             echo "### Trivy"
             echo ""
-            echo "**Image:** \`${IMAGE_REF}\`"
+            echo "**Image:** \`${IMAGE_REF:-unavailable}\`"
             echo ""
             if [ -f trivy.log ]; then
               echo '```'
