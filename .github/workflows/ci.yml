@@ -16,6 +16,9 @@ jobs:
       # Checkout repository code (required for all following steps)
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Fetch full history so Gitleaks can scan commit ranges reliably
+          fetch-depth: 0
 
       # Set up Python for test and lint steps
       - name: Set up Python
@@ -63,8 +66,9 @@ jobs:
       # Secret scanning with Gitleaks (source-level check)
       - name: Secret scanning
         uses: gitleaks/gitleaks-action@v2
-        with:
-          args: --source . --no-banner --verbose
+        env:
+          # Required so gitleaks-action can call GitHub APIs for reporting
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Build the Docker image and tag it with the commit SHA (immutable) + latest
       - name: Build Docker image
