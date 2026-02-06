@@ -70,14 +70,7 @@ jobs:
       # Scan Python dependencies for known vulnerabilities (pip-audit)
       - name: Dependency vulnerability scan
         run: |
-          set -o pipefail
-          pip-audit --progress-spinner off | tee /tmp/pip_audit.log
-          {
-            echo "### Dependency Audit"
-            echo '```'
-            cat /tmp/pip_audit.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          pip-audit --progress-spinner off
 
       # Install Trivy CLI and scan the built Docker image for OS and library vulnerabilities
       - name: Install Trivy CLI
@@ -99,7 +92,7 @@ jobs:
           set -o pipefail
           trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF} | tee /tmp/trivy.log
           {
-            echo "### Trivy Image Scan"
+            echo "### Trivy"
             echo '```'
             cat /tmp/trivy.log
             echo '```'
@@ -113,10 +106,3 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         with:
           args: --source . --no-banner --verbose
-      - name: Append secret scanning summary
-        if: success()
-        run: |
-          {
-            echo "### Secret Scanning"
-            echo "- Gitleaks completed with no secrets detected."
-          } >> "$GITHUB_STEP_SUMMARY"
