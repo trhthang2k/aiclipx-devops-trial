@@ -78,39 +78,34 @@ jobs:
       # - Behavior: exit code 1 fails the job when HIGH/CRITICAL vulnerabilities are found.
       # - Input: uses the image reference exported earlier into `IMAGE_REF`.
       # Trivy image scan (official action) + export to GitHub Step Summary
-      # Trivy image scan (official action) + export to GitHub Step Summary
-      - name: Run Trivy image scan
-        id: trivy
-        uses: aquasecurity/trivy-action@0.24.0
+      # Vulnerability/misconfig/secret scan
+      - name: Run Trivy vulnerability scan on image
+        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
         with:
-          image-ref: ${{ steps.build-image.outputs.image_ref }}
-          format: table
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          ignore-unfixed: false
-          vuln-type: "os,library"
-          scanners: "vuln"
-          timeout: "10m"
-          output: trivy.log
+          scan-type: 'image'
+          image-ref: admin-web:${{ github.sha }}
+          format: 'table'
+          output: 'trivy-report.txt'
+          vuln-type: 'os,library'
+          scanners: 'vuln,secret,misconfig'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
 
-      - name: Trivy summary
+      - name: Add Trivy report to GitHub Summary
         if: always()
-        env:
-          IMAGE_REF: ${{ steps.build-image.outputs.image_ref }}
         run: |
-          {
-            echo "### Trivy"
-            echo ""
-            echo "**Image:** \`${IMAGE_REF:-unavailable}\`"
-            echo ""
-            if [ -f trivy.log ]; then
+          if [ -f trivy-report.txt ]; then
+            {
+              echo '## Trivy Vulnerability Report (CRITICAL/HIGH)'
+              echo
               echo '```'
-              cat trivy.log
+              cat trivy-report.txt
               echo '```'
-            else
-              echo "_No Trivy output file found._"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No Trivy report generated.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # Secret scanning with Gitleaks
       # - Purpose: scan the repository for high-risk secrets (API keys, passwords, tokens).
