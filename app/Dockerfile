@@ -42,9 +42,13 @@ COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 RUN adduser -D -u 1000 appuser \
 	&& chown -R appuser:appuser /app
 
-# Remove vulnerable system packages to rely solely on virtualenv copies
-RUN find /usr/local/lib/python3.11/site-packages -maxdepth 1 -name 'jaraco.context*' -exec rm -rf {} + \
-	&& find /usr/local/lib/python3.11/site-packages -maxdepth 1 -name 'wheel*' -exec rm -rf {} +
+# Remove system site-packages to avoid vulnerable global copies; rely on venv
+RUN for dir in /usr/lib/python3.11/site-packages /usr/lib/python3.11/dist-packages \
+/usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/dist-packages; do \
+	if [ -d "$dir" ]; then \
+		rm -rf "${dir:?}"/*; \
+	fi; \
+done
 
 USER appuser
 
