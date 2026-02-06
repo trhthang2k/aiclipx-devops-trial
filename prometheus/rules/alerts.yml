@@ -2,15 +2,18 @@ groups:
   - name: app-observability
     rules:
       - alert: AppHigh5xxErrorRate
-        expr: sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)", http_status=~"5.."}[5m]))
-          / sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m])) > 0.05
-        for: 10m
+        expr: |
+          (sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)", http_status=~"5.."}[5m]))
+            / sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m]))) > 0.05
+            and sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m])) > 0.5
+        # Shortened for demo so alert can FIRE within a few minutes.
+        for: 1m
         labels:
           severity: critical
         annotations:
           summary: "5xx error rate above 5% for 10 minutes"
           description: |
-            Users are seeing 5xx responses exceeding 5 percent of total traffic over the last ten minutes.
+            Users are seeing 5xx responses exceeding 5 percent of total traffic over the last ten minutes while sustained load stays above 0.5 req/s.
             Threshold aligns with the trial SLO; beyond 5 percent we treat it as a critical incident.
           runbook: |
             1. Open the Grafana "App Overview" dashboard, panel "User 5xx Error Rate" to confirm the trend.
@@ -18,23 +21,27 @@ groups:
             3. Review recent deployments or merges; rollback to the last known good image if needed.
 
       - alert: AppHighP95Latency
-        expr: histogram_quantile(0.95,
-          sum by (le) (rate(app_request_latency_seconds_bucket{endpoint!~"/(metrics|health/.*)"}[5m]))) > 0.5
-        for: 10m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(app_request_latency_seconds_bucket{endpoint!~"/(metrics|health/.*)"}[5m]))) > 0.5
+            and sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m])) > 0.5
+        # Shortened for demo so alert can FIRE within a few minutes.
+        for: 1m
         labels:
           severity: warning
         annotations:
           summary: "p95 latency above 500 ms for 10 minutes"
           description: |
-            The 95th percentile latency exceeds 0.5 seconds, roughly five times the expected baseline (~100 ms).
+            The 95th percentile latency exceeds 0.5 seconds, roughly five times the expected baseline (~100 ms), during periods of steady traffic (>0.5 req/s).
           runbook: |
             1. Check the "p95 Latency" panel on the Grafana dashboard to pinpoint the spike window.
             2. Review "User Request Rate" and "Top Endpoints" panels to locate bursty traffic or hot endpoints.
             3. Inspect application logs for slow operations (database calls, queues); scale out or disable the culprit job if required.
 
       - alert: AppHighExceptionRate
-        expr: rate(app_errors_total[5m]) > 1
-        for: 5m
+        expr: rate(app_errors_total[2m]) > 1
+        # Shortened for demo so alert can FIRE within a few minutes.
+        for: 1m
         labels:
           severity: warning
         annotations:
@@ -47,8 +54,9 @@ groups:
             3. If caused by malformed client traffic, enforce validation or rate limits; if due to a regression, rollback and open an incident ticket.
 
       - alert: AppTrafficDrop
-        expr: sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m])) < 0.05
-        for: 15m
+        expr: sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[2m])) < 0.05
+        # Shortened for demo so alert can FIRE after a brief drop.
+        for: 3m
         labels:
           severity: warning
         annotations:

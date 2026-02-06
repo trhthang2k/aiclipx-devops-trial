@@ -1,120 +1,208 @@
-# Round 2 — Evidence Package
+# Round 2 – Evidence Package
 
-## 1. Design Overview
-- Goal: deliver a release-safe pipeline with unit tests, baseline security checks, and actionable alerting for key service signals.
-- CI workflow `.github/workflows/ci.yml` runs on every PR and on `main`, covering lint, unit tests, Docker build, dependency audit, and secret scanning.
-- Prometheus alert rules in `prometheus/rules/alerts.yml` watch 5xx error rate, p95 latency, internal exceptions, and traffic drops.
+This document explains how this repository satisfies the round‑2 assignment requirements and how to reproduce the evidence from a clean clone.
 
-## 2. CI and Release Safety
-| Step | Tooling | Purpose |
-| --- | --- | --- |
-| Lint & format check | ruff | Keep code quality consistent before builds. |
-| Unit tests | pytest + Flask test client | Validate core endpoints and request validation. |
-| Build image | docker build -t aiclipx-devops-trial:ci app | Ensure the Dockerfile builds before release. |
-| Dependency scan | pip-audit | Detect Python packages with known CVEs. |
-| Secret scan | gitleaks | Prevent accidental secret commits. |
+## 1. Mapping to the Assignment
 
-### Release provenance guidance
-- Tag application images with semantic versions (`vMAJOR.MINOR.PATCH`) and publish the matching SHA256 digest.
-- Document release notes with CI results, alert evidence, and rollback instructions; include the image digest for verification.
-- Promote images from the provisional `ci` tag to `staging`/`prod` only after the CI checklist and alert verification are complete.
+- **A) CI / Release Safety**  → GitHub Actions workflow [.github/workflows/ci.yml](../../.github/workflows/ci.yml) and PR template [.github/pull_request_template.md](../../.github/pull_request_template.md).
+- **B) Alerting (Prometheus)** → Alert rules in [prometheus/rules/alerts.yml](../../prometheus/rules/alerts.yml) and dashboard queries in [grafana/provisioning/dashboards/app_dashboard.json](../../grafana/provisioning/dashboards/app_dashboard.json).
+- **C) Evidence Package** → This README, screenshots under [evidence/round2/screenshots](screenshots), and the traffic helper scripts under [scripts](../../scripts).
 
-## 3. Alert Rules and Runbook
-| Alert | Threshold & window | Severity | Rationale | Runbook summary |
-| --- | --- | --- | --- | --- |
-| AppHigh5xxErrorRate | 5xx > 5% of total requests for 10 minutes | Critical | 5% 5xx breaches the trial SLO and signals a widespread regression | (1) Open "User 5xx Error Rate" panel; (2) inspect app JSON logs via docker compose logs app; (3) review recent deploys and rollback if required. |
-| AppHighP95Latency | p95 > 0.5 s for 10 minutes | Warning | Five times the ~100 ms baseline, indicating contention or burst traffic | (1) Check "p95 Latency" panel; (2) review traffic and top endpoints; (3) inspect logs for slow operations and scale or throttle as needed. |
-| AppHighExceptionRate | rate(app_errors_total[5m]) > 1 for 5 minutes | Warning | Sustained exception rate suggests instability or bad traffic | (1) View "Internal Exceptions" panel; (2) capture stack traces from logs; (3) block malicious payloads or rollback regression. |
-| AppTrafficDrop | Total requests < 0.05 req/s for 15 minutes | Warning | Indicates the service is down or disconnected from users | (1) Confirm via "User Request Rate" panel; (2) check Prometheus target status; (3) run manual health probe; (4) restart container and investigate infrastructure. |
+All examples are self‑contained and use only local Docker/Compose and mock values from `.env.example`.
 
-## 4. Reproduction Commands (clean clone)
+## 2. CI & Release Safety (Part A)
+
+### 2.1 Workflow overview
+
+The GitHub Actions workflow [.github/workflows/ci.yml](../../.github/workflows/ci.yml) runs on:
+
+- Every push to `main`.
+- Every `pull_request` targeting the repository.
+
+It uses Python 3.11 and a single job `build-test` with these steps:
+
+| Order | Step | Tooling | Purpose |
+| --- | --- | --- | --- |
+| 1 | Checkout | `actions/checkout@v4` | Fetch the repository code for the job. |
+| 2 | Set up Python | `actions/setup-python@v5` | Install the requested Python version for tests and tools. |
+| 3 | Install dependencies | `pip` | Install `app/requirements.txt` plus `pytest`, `ruff`, and `pip-audit`. |
+| 4 | Dependency vulnerability scan | `pip-audit` | Scan installed Python dependencies for known CVEs. |
+| 5 | Lint & format check | `ruff check .` and `ruff format --check .` | Enforce style and formatting before build and release. Uses `set -o pipefail` and writes detailed logs to the GitHub step summary. |
+| 6 | Unit tests | `pytest` running [tests/test_app.py](../../tests/test_app.py) | Exercise the Flask API (`/`, `/items`, validation) via Flask’s test client. Logs are also attached to the GitHub step summary. |
+| 7 | Secret scanning (source) | `gitleaks/gitleaks-action@v2` | Detect hard‑coded secrets in the repository. |
+| 8 | Build Docker image | `docker build` on [app](../../app) | Build the runtime image from [app/Dockerfile](../../app/Dockerfile), tagged as `aiclipx-devops-trial:${GITHUB_SHA}` and `aiclipx-devops-trial:latest`. |
+| 9 | List Docker images | `docker images` | Help debug build/push issues by listing built images. |
+| 10 | Image vulnerability scan | `aquasecurity/trivy-action` | Scan the built Docker image for OS and library vulnerabilities and secrets (CRITICAL severity, `ignore-unfixed: true`). Report is attached to the GitHub step summary. |
+
+The job is configured to **fail fast**: any non‑zero exit code from lint, tests, security scans, or image build will fail the workflow and block the PR.
+
+### 2.2 Branch / PR discipline
+
+Pull requests use the template [.github/pull_request_template.md](../../.github/pull_request_template.md), which requires authors to:
+
+- Summarise the change.
+- Attach evidence links:
+	- Link to the related CI run.
+	- Proof of alert configuration (config file or UI screenshot).
+	- Screenshot of an alert firing (simulation acceptable).
+	- Command list to reproduce locally if build/test steps changed.
+- Provide a minimal reviewer checklist (CI green, alert rules updated/unchanged, evidence attached).
+
+This keeps PRs lightweight but still enforces discipline and traceability.
+
+### 2.3 Image provenance and versioning
+
+The CI build step tags images with the immutable Git commit SHA and a `latest` tag. For a real release process, this repo recommends:
+
+- Tagging release images with semantic versions (for example `aiclipx-devops-trial:v1.2.0`) **and** publishing the corresponding image digest (`@sha256:…`).
+- Recording release notes (GitHub Releases or CHANGELOG) that include:
+	- The image tag and digest.
+	- A link to the successful CI run.
+	- A short summary of alerts verified in the environment.
+	- Rollback instructions and any migration notes.
+- Promoting images from a temporary `ci` or `staging` tag to `prod` only after the CI workflow is green and the alerting checks below have been exercised.
+
+## 3. Alerting (Part B)
+
+Prometheus is configured via [prometheus/prometheus.yml](../../prometheus/prometheus.yml) to scrape the Flask app at `app:8080` and to load alert rules from [prometheus/rules/alerts.yml](../../prometheus/rules/alerts.yml).
+
+The app exposes metrics using `prometheus_client` in [app/app.py](../../app/app.py):
+
+- `app_requests_total{method,endpoint,http_status}` – request counter.
+- `app_request_latency_seconds_bucket` (and `_sum`, `_count`) – latency histogram by endpoint.
+- `app_errors_total` – counter of internal exceptions.
+
+The alert rules are defined in a single rule group `app-observability` and are designed to be **actionable but not noisy**. All rules use `rate()` over multiple minutes and a `for` clause to avoid firing on brief spikes. For local demos the `for` windows are intentionally short; annotations describe longer SLO‑style expectations.
+
+### 3.1 AppHigh5xxErrorRate – 5xx error rate elevated
+
+- **Location**: [prometheus/rules/alerts.yml](../../prometheus/rules/alerts.yml)
+- **Expr** (simplified):
+	- 5xx error rate over 5 minutes: `sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)", http_status=~"5.."}[5m]))`.
+	- Total request rate over 5 minutes: `sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[5m]))`.
+	- Condition: 5xx rate / total rate `> 0.05` (5%) **and** total rate `> 0.5` req/s.
+	- `for: 1m` (shortened so it can FIRE quickly in local demos).
+- **Severity**: `critical`.
+- **Rationale**: sustained 5xx error rate above 5% indicates a serious regression while still protecting against noise at very low traffic.
+- **Runbook (summary)**:
+	1. Open Grafana (provisioned dashboard `App Overview`) and inspect the “User 5xx Error Rate” panel.
+	2. Use `docker compose logs app` to inspect JSON logs and recent stack traces.
+	3. Check recent deployments/merges and roll back to the last known good image if needed.
+
+### 3.2 AppHighP95Latency – p95 latency elevated
+
+- **Expr** (simplified):
+	- Compute 95th percentile latency over 5 minutes for user endpoints:
+		`histogram_quantile(0.95, sum by (le) (rate(app_request_latency_seconds_bucket{endpoint!~"/(metrics|health/.*)"}[5m]))) > 0.5`.
+	- Require total request rate `> 0.5` req/s.
+	- `for: 1m` (short for demo).
+- **Severity**: `warning`.
+- **Rationale**: p95 above 0.5 s (≈ 5× the typical ~100 ms baseline) across several minutes points to contention or a performance regression rather than a single slow request.
+- **Runbook (summary)**:
+	1. In Grafana, inspect the “p95 Latency” panel to locate when the spike started.
+	2. Compare with “User Request Rate” and “Top Endpoints” to see whether specific endpoints or traffic bursts are responsible.
+	3. Review application logs for slow operations (database calls, external APIs, queues) and scale out or disable the problematic path if required.
+
+### 3.3 AppHighExceptionRate – internal exceptions elevated
+
+- **Expr**: `rate(app_errors_total[2m]) > 1` with `for: 1m`.
+- **Severity**: `warning`.
+- **Rationale**: more than one internal exception per second over several minutes indicates instability or hostile traffic, while still ignoring small spikes.
+- **Runbook (summary)**:
+	1. Use the “Internal Exceptions Rate” panel in Grafana to confirm the timing and magnitude of the spike.
+	2. Use `docker compose logs app` to capture stack traces and example payloads.
+	3. If caused by malformed client traffic, add validation or rate‑limits; if caused by a code regression, roll back and open an incident ticket.
+
+### 3.4 AppTrafficDrop – traffic drop to near‑zero (optional alert)
+
+- **Expr**: `sum(rate(app_requests_total{endpoint!~"/(metrics|health/.*)"}[2m])) < 0.05` with `for: 3m`.
+- **Severity**: `warning`.
+- **Rationale**: total user traffic below ~0.05 req/s (≈ 3 requests/minute) for multiple minutes suggests the service is down, unreachable, or disconnected from users.
+- **Runbook (summary)**:
+	1. Check the Grafana “User Request Rate” panel to confirm the drop.
+	2. In Prometheus, open **Status → Targets** to confirm whether `app:8080` is still up.
+	3. Run a manual health probe such as `curl http://localhost:8080/health/live` from the host or a container.
+	4. If the app is down, restart the container and investigate system and application logs for the root cause.
+
+## 4. Reproducing the Evidence (Part C)
+
+### 4.1 From a clean clone
+
 ```bash
 git clone <repo-url>
 cd aiclipx-devops-trial
-python3 -m venv .venv && source .venv/bin/activate
+
+# (Optional but recommended) create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install Python dependencies and dev tools
 pip install -r app/requirements.txt pytest ruff pip-audit
+
+# Run unit tests
 pytest
-ruff check . && ruff format --check .
+
+# Lint and format check
+ruff check .
+ruff format --check .
+
+# Dependency vulnerability scan
 pip-audit
-# Build image
-cd app && docker build -t aiclipx-devops-trial:ci . && cd ..
-# Start observability stack
-cp .env.example .env && echo "GF_SECURITY_ADMIN_PASSWORD=changeme" >> .env
+
+# Build the application Docker image
+cd app
+docker build -t aiclipx-devops-trial:ci .
+cd ..
+
+# Start the full observability stack (app + Prometheus + Grafana)
+cp .env.example .env
+echo "GF_SECURITY_ADMIN_PASSWORD=changeme" >> .env  # demo only; do not use in production
 docker compose up -d --build
 ```
 
-- Trigger 5xx alert: `TARGET_EPS=5 DURATION=120 ./scripts/05_exceptions_rate.sh`
-- Trigger latency burst: `./scripts/03_latency_p95.sh`
+### 4.2 Triggering alerts with synthetic traffic
 
-## 5. Required Screenshots
-Store images in `evidence/round2/screenshots/`:
-- `ci-pass.png`: successful CI workflow run.
-- `ci-fail.png`: failing run (lint/test/security) demonstrating guardrails.
-- `alert-config.png`: alert configuration in Prometheus or Grafana.
-- `alert-trigger.png`: alert firing screenshot (simulation allowed).
+Traffic and error patterns are generated by [scripts/06_alert_evidence_runner.sh](../../scripts/06_alert_evidence_runner.sh):
 
-> Note: the repo only keeps placeholders; capture real screenshots after running the pipeline and alerts.
+- 5xx error rate: `./scripts/06_alert_evidence_runner.sh 5xx`
+- High p95 latency (bursty slow path): `./scripts/06_alert_evidence_runner.sh latency`
+- Internal exceptions: `./scripts/06_alert_evidence_runner.sh exceptions`
+- Traffic drop to near‑zero: `./scripts/06_alert_evidence_runner.sh drop`
+
+Each scenario drives HTTP requests against `http://localhost:8080` until the corresponding Prometheus alert transitions to `PENDING` and then `FIRING`.
+
+## 5. Evidence Artifacts (Screenshots)
+
+Screenshots for this round live in [evidence/round2/screenshots](screenshots) and correspond to the requirements as follows:
+
+- `CI-success.png` – Successful GitHub Actions run of the `CI` workflow, showing lint, tests, security scans, and Docker image build all passing.
+- `CI-failed.png` – Example CI run failing during the `Lint & format check` step because of a `ruff` error, demonstrating that the pipeline blocks merges on code‑quality issues.
+- `alert-1.png` and `alert-2.png` – Prometheus “Alerts” UI listing the four rules (`AppHigh5xxErrorRate`, `AppHighP95Latency`, `AppHighExceptionRate`, `AppTrafficDrop`) loaded from `/etc/prometheus/rules/alerts.yml`.
+- `alert-firing.png` and `alert-firing-1.png` – Prometheus UI showing alerts such as `AppHigh5xxErrorRate` and `AppHighExceptionRate` in `FIRING` state while traffic is generated by the scripts above.
+
+These images provide visual proof that the CI pipeline, alert configuration, and alert firing behaviour match the design described here.
 
 ## 6. Top 5 Risks and Mitigations
-1. **No outbound alert channel** — Add Alertmanager plus an on-call channel (email/chat) before production.
-2. **Prometheus data not persisted** — Mount a persistent volume and set retention to preserve history across restarts.
-3. **CI depends on public mirrors** — Configure a package cache or artifact mirror to avoid external outages.
-4. **Secrets exposed in CI logs** — Mask environment variables and scope GitHub Actions secrets with least privilege.
-5. **Limited test coverage** — Expand tests for error scenarios, metrics correctness, and contract validation.
 
-## 2. Quy trình CI & Release safety
-| Bước | Công cụ | Mục đích |
-| --- | --- | --- |
-| Lint & format check | `ruff` | Giữ chất lượng mã nguồn nhất quán trước khi build. |
-| Unit tests | `pytest` + Flask test client | Đảm bảo các endpoint chính hoạt động và kiểm tra validation. |
-| Build image | `docker build -t aiclipx-devops-trial:ci app` | Xác nhận Dockerfile hợp lệ trước khi phát hành. |
-| Dependency scan | `pip-audit` | Phát hiện gói Python có CVE đã biết. |
-| Secret scan | `gitleaks` | Ngăn nhầm commit bí mật vào repo. |
+1. **No outbound alert channel**  
+	 - *Risk*: Alerts are visible only in the Prometheus UI; there is no Alertmanager or notification channel.  
+	 - *Mitigation*: Add Alertmanager to `docker-compose.yml` and configure at least one notification route (email, Slack, or PagerDuty) before any real production deployment.
 
-### Ghi chú về phát hành & provenance
-- Gắn thẻ image theo semver (`vMAJOR.MINOR.PATCH`) và xuất bản digest SHA256 tương ứng.
-- Tạo ghi chú phát hành kèm link digest, kết quả CI, bằng chứng alert, và hướng dẫn rollback.
-- Chỉ promote image khỏi tag `ci` sang `staging/prod` sau khi checklist CI + alert verification hoàn tất.
+2. **Prometheus data is not persisted**  
+	 - *Risk*: The current Compose stack does not mount a persistent volume for Prometheus; container restarts lose historical metrics.  
+	 - *Mitigation*: Add a volume such as `./prometheus/data:/prometheus` and configure an explicit retention policy (for example `--storage.tsdb.retention.time=15d`).
 
-## 3. Alert rules & runbook
-| Alert | Ngưỡng & cửa sổ | Mức độ | Rationale | Runbook tóm tắt |
-| --- | --- | --- | --- | --- |
-| `AppHigh5xxErrorRate` | 5xx > 5% tổng request trong 10 phút | Critical | 5% 5xx cho thấy lỗi diện rộng vượt SLO thử nghiệm | (1) Mở panel "User 5xx Error Rate"; (2) đọc log JSON `docker compose logs app`; (3) kiểm tra thay đổi gần nhất / rollback. |
-| `AppHighP95Latency` | p95 > 0.5s trong 10 phút | Warning | Cao gấp ~5 lần baseline 100ms, báo hiệu nghẽn | (1) Panel "p95 Latency"; (2) xem lưu lượng/top endpoints; (3) đọc log tìm tác nhân chậm, cân nhắc scale. |
-| `AppHighExceptionRate` | `rate(app_errors_total[5m]) > 1` giữ 5 phút | Warning | Exception >1/s kéo dài gây nguy cơ thiếu ổn định | (1) Panel "Internal Exceptions"; (2) tra log lấy stacktrace; (3) cách ly payload xấu hoặc rollback. |
-| `AppTrafficDrop` | Tổng request <0.05 req/s trong 15 phút | Warning | Lưu lượng gần như mất hẳn → app down hay routing lỗi | (1) Panel "User Request Rate"; (2) Prometheus Targets; (3) tự kiểm tra health check; (4) khởi động lại container nếu cần. |
+3. **CI depends on public package and image registries**  
+	 - *Risk*: Outages or rate limits on PyPI or Docker Hub could break CI.  
+	 - *Mitigation*: Use a caching proxy or internal artifact registry for Python wheels and base images; pin image digests for reproducibility.
 
-## 4. Lệnh tái hiện (từ bản clone sạch)
-```bash
-git clone <repo-url>
-cd aiclipx-devops-trial
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r app/requirements.txt pytest ruff pip-audit
-pytest
-ruff check . && ruff format --check .
-pip-audit
-# Build image
-cd app && docker build -t aiclipx-devops-trial:ci . && cd ..
-# Khởi động stack quan sát
-cp .env.example .env && echo "GF_SECURITY_ADMIN_PASSWORD=changeme" >> .env
-docker compose up -d --build
-```
+4. **Secrets could leak in CI logs**  
+	 - *Risk*: Although `.env` is not committed and Gitleaks scans the repo, misconfigured secrets could still appear in logs.  
+	 - *Mitigation*: Store secrets only in GitHub encrypted secrets, avoid echoing them, and configure GitHub Action masking for any sensitive patterns.
 
-- Tạo lỗi 5xx để thử alert: `TARGET_EPS=5 DURATION=120 ./scripts/05_exceptions_rate.sh`
-- Tạo burst latency: `./scripts/03_latency_p95.sh`
+5. **Limited test coverage**  
+	 - *Risk*: Current tests in [tests/test_app.py](../../tests/test_app.py) cover only basic happy‑path and validation for `/` and `/items`.  
+	 - *Mitigation*: Extend tests to cover error conditions, metrics correctness (for example, verifying `app_requests_total` and `app_errors_total` increments), and contract tests for additional endpoints as the service grows.
 
-## 5. Bằng chứng cần đính kèm
-Đặt ảnh chụp trong `evidence/round2/screenshots/`:
-- `ci-pass.png`: workflow CI thành công.
-- `ci-fail.png`: ví dụ thất bại (lint/test/security) cho thấy guard hoạt động.
-- `alert-config.png`: cấu hình alert trong Prometheus/Grafana.
-- `alert-trigger.png`: ảnh chụp alert sau khi mô phỏng sự cố.
+This evidence package, together with the CI workflow, alert rules, and screenshots, demonstrates a minimal but realistic setup for safe releases and actionable monitoring in a small Flask service.
 
-> **Lưu ý:** repo chỉ chứa placeholder, vui lòng thu thập ảnh thực tế sau khi chạy pipeline/alert và lưu đúng tên.
-
-## 6. Top 5 rủi ro & giảm thiểu
-1. **Thiếu cảnh báo triển khai thực** — Thiếu Alertmanager/email ⇒ đề xuất thêm Alertmanager + channel cảnh báo trước khi production.
-2. **Không lưu dữ liệu Prometheus lâu dài** — Khởi động lại mất lịch sử ⇒ gắn volume persistent và đặt retention phù hợp.
-3. **CI phụ thuộc internet công cộng** — Nếu kho package không sẵn ⇒ cấu hình cache nội bộ hoặc mirror artifactory.
-4. **Secret leak qua log CI** — Cần mask biến môi trường và giới hạn quyền GitHub Action secrets.
-5. **Thiếu kiểm thử sâu** — Mới chỉ test happy path ⇒ mở rộng test cho error handling, metrics correctness, contract test.
