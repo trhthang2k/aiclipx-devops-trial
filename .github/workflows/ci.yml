@@ -62,6 +62,10 @@ jobs:
           TRIVY_VERSION=0.44.0
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin ${TRIVY_VERSION}
 
+      # Run Trivy image scan
+      # - Purpose: scan the built Docker image for OS and library vulnerabilities.
+      # - Behavior: exit code 1 fails the job when HIGH/CRITICAL vulnerabilities are found.
+      # - Input: uses the image reference exported earlier into `IMAGE_REF`.
       - name: Run Trivy image scan
         env:
           IMAGE_REF: ${{ env.IMAGE_REF }}
@@ -70,6 +74,10 @@ jobs:
           # Fail the job on detected HIGH/CRITICAL vulnerabilities
           trivy image --no-progress --format table --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_REF}
 
+      # Secret scanning with Gitleaks
+      # - Purpose: scan the repository for high-risk secrets (API keys, passwords, tokens).
+      # - Behavior: the action will fail the job if finds potential secrets depending on configuration.
+      # - Note: tune `.gitleaks.toml` or action args for false-positive handling in larger repos.
       - name: Secret scanning
         uses: gitleaks/gitleaks-action@v2
         with:
