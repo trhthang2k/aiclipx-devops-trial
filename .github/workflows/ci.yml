@@ -83,7 +83,7 @@ jobs:
         uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
         with:
           scan-type: 'image'
-          image-ref: admin-web:${{ github.sha }}
+          image-ref: ${{ steps.build-image.outputs.image_ref }}
           format: 'table'
           output: 'trivy-report.txt'
           vuln-type: 'os,library'
