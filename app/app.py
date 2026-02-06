@@ -1,10 +1,10 @@
-from flask import Flask, jsonify, request
 import logging
 import os
-from pythonjsonlogger import jsonlogger
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from flask import g
 import time
+
+from flask import Flask, g, jsonify, request
+from pythonjsonlogger import jsonlogger
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 app = Flask(__name__)
 
