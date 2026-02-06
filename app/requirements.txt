@@ -2,3 +2,5 @@ flask>=2.2
 prometheus_client>=0.15
 python-json-logger>=2.0
 gunicorn>=20.1
+wheel==0.46.2
+jaraco.context==6.1.0
