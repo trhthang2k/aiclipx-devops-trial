@@ -90,7 +90,7 @@ jobs:
           vuln-type: "os,library"
           scanners: "vuln"
           timeout: "10m"
-          output: /tmp/trivy.log
+          output: trivy.log
 
       - name: Trivy summary
         if: always()
@@ -100,9 +100,9 @@ jobs:
             echo ""
             echo "**Image:** \`${IMAGE_REF}\`"
             echo ""
-            if [ -f /tmp/trivy.log ]; then
+            if [ -f trivy.log ]; then
               echo '```'
-              cat /tmp/trivy.log
+              cat trivy.log
               echo '```'
             else
               echo "_No Trivy output file found._"
